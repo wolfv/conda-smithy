@@ -1,0 +1,7 @@
+# This file was generated automatically by smithy. Do not edit.
+target_platform: win-64
+build_platform: win-64
+c_stdlib_version:
+- 'null'
+python:
+- '3.13'

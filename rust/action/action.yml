@@ -1,0 +1,86 @@
+name: smithy
+description: >-
+  Lint conda recipes and (re-)render feedstock CI with smithy, the Rust
+  rewrite of conda-smithy. Lint rules are Rhai scripts, CI templates are
+  minijinja — both extendable from the feedstock's .smithy/ directory.
+author: conda-smithy contributors
+
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  command:
+    description: >-
+      What to run: `lint` (report problems), `rerender-check` (show what
+      rerendering would change) or `rerender` (write the CI files).
+    required: false
+    default: lint
+  feedstock-dir:
+    description: Path to the feedstock, relative to the workspace.
+    required: false
+    default: "."
+
+outputs:
+  report:
+    description: 'For `lint`, the JSON report: {"lints": [...], "hints": [...]}'
+    value: ${{ steps.run.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ github.action_path }}/..
+
+    - name: Build smithy
+      shell: bash
+      run: cargo install --locked --path "${{ github.action_path }}/../crates/smithy-cli"
+
+    - name: Run smithy
+      id: run
+      shell: bash
+      run: |
+        set -o pipefail
+        cd "${{ inputs.feedstock-dir }}"
+        case "${{ inputs.command }}" in
+          lint)
+            # Capture the JSON report; keep the exit code for after
+            # publishing the summary.
+            status=0
+            report=$(smithy lint --format json) || status=$?
+            echo "$report"
+            {
+              echo "report<<SMITHY_EOF"
+              echo "$report"
+              echo "SMITHY_EOF"
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "## smithy lint"
+              echo
+              echo "$report" | jq -r '
+                (.lints | map("- :x: **\(.rule)**: \(.message)") | join("\n")),
+                (.hints | map("- :bulb: \(.rule): \(.message)") | join("\n"))
+                | select(. != "")'
+              if [ "$status" -eq 0 ]; then
+                echo; echo "No lints. :tada:"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+            ;;
+          rerender-check)
+            smithy rerender --check | tee -a "$GITHUB_STEP_SUMMARY"
+            ;;
+          rerender)
+            smithy rerender
+            git status --porcelain
+            ;;
+          *)
+            echo "unknown command '${{ inputs.command }}'" >&2
+            exit 2
+            ;;
+        esac
