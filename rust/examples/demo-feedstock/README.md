@@ -12,11 +12,16 @@ Summary: A demo package showing off the Rust smithy
 
 | Variant | Build platform | CI |
 |---------|----------------|----|
-| linux_64 | linux-64 | github_actions |
-| osx_64 | osx-64 | azure |
-| win_64 | win-64 | azure |
-| linux_aarch64 | linux-aarch64 | github_actions |
-| osx_arm64 | osx-64 (cross-compiled) | azure |
+| linux_64_python3.12 | linux-64 | github_actions |
+| linux_64_python3.13 | linux-64 | github_actions |
+| osx_64_python3.12 | osx-64 | azure |
+| osx_64_python3.13 | osx-64 | azure |
+| win_64_python3.12 | win-64 | azure |
+| win_64_python3.13 | win-64 | azure |
+| linux_aarch64_python3.12 | linux-aarch64 | github_actions |
+| linux_aarch64_python3.13 | linux-aarch64 | github_actions |
+| osx_arm64_python3.12 | osx-64 (cross-compiled) | azure |
+| osx_arm64_python3.13 | osx-64 (cross-compiled) | azure |
 
 
 ## Installing demo-package

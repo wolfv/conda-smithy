@@ -13,11 +13,17 @@ jobs:
       vmImage: macOS-13
     strategy:
       matrix:
-        osx_64:
-          CONFIG: osx_64
+        osx_64_python3.12:
+          CONFIG: osx_64_python3.12
           UPLOAD_PACKAGES: "true"
-        osx_arm64:
-          CONFIG: osx_arm64
+        osx_64_python3.13:
+          CONFIG: osx_64_python3.13
+          UPLOAD_PACKAGES: "true"
+        osx_arm64_python3.12:
+          CONFIG: osx_arm64_python3.12
+          UPLOAD_PACKAGES: "true"
+        osx_arm64_python3.13:
+          CONFIG: osx_arm64_python3.13
           UPLOAD_PACKAGES: "true"
     steps:
       - script: |
@@ -30,8 +36,11 @@ jobs:
       vmImage: windows-2022
     strategy:
       matrix:
-        win_64:
-          CONFIG: win_64
+        win_64_python3.12:
+          CONFIG: win_64_python3.12
+          UPLOAD_PACKAGES: "true"
+        win_64_python3.13:
+          CONFIG: win_64_python3.13
           UPLOAD_PACKAGES: "true"
     steps:
       - script: |

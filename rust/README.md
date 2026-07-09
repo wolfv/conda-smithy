@@ -36,6 +36,28 @@ if any lint fired. `smithy rerender` regenerates `.ci_support/*.yaml`,
 GitHub Actions / Azure Pipelines configuration and `README.md` from the
 build matrix defined in `conda-forge.yml`.
 
+## Build variants
+
+A `conda_build_config.yaml` (v0) or `variants.yaml` (v1) next to the
+recipe fans the matrix out — every key with more than one value becomes a
+job axis, `zip_keys` groups advance together instead of crossing, and
+`# [linux]`-style line selectors are evaluated per target platform
+(the selector expression is run by the same Rhai engine that powers lint
+rules):
+
+```yaml
+python: ["3.12", "3.13"]
+numpy: ["1.26", "2.0"]
+zip_keys:
+  - [python, numpy]
+c_stdlib_version:
+  - "2.17"   # [linux]
+  - "10.13"  # [osx]
+```
+
+yields jobs like `linux_64_python3.12_numpy1.26`, each with its variant
+values written to `.ci_support/<name>.yaml`.
+
 ## Writing your own lint rule
 
 Drop a file into `.smithy/lints/` in your feedstock:
@@ -65,7 +87,10 @@ Every rule script gets these variables:
 | `recipe_version`     | int           | `0` = `meta.yaml`, `1` = `recipe.yaml`      |
 | `recipe_parse_error` | string        | parse error, `""` on success                |
 | `config`             | map           | the parsed `conda-forge.yml`                |
+| `config_schema_error`| string        | schema problem in `conda-forge.yml`, or `""`|
 | `recipe_files`       | array         | file names in the recipe directory          |
+| `variant_config_filename` | string   | `conda_build_config.yaml` / `variants.yaml` / `""` |
+| `variant_config_text`| string        | raw variant file contents, or `""`          |
 
 and these helpers on top of the full Rhai standard library:
 
@@ -75,6 +100,12 @@ and these helpers on top of the full Rhai standard library:
 * `is_match(text, regex)` / `find_all(text, regex)` — regular expressions
 * `keys_in_order(recipe_yaml, "requirements")` — mapping keys in file order
 * `join(array, ", ")` — stringify an array
+* `parse_yaml(text)` — parse any YAML string into a scriptable value
+
+Rhai gotchas worth knowing when writing rules: `trim()`, `replace()` and
+friends mutate their string in place and return `()` (see the built-in
+rules for the pattern), and backtick strings interpolate `${...}` but
+cannot contain literal backticks.
 
 To tweak a built-in rule, copy it from `crates/smithy-core/lints/` into
 `.smithy/lints/` under a new name and disable the original in
@@ -115,12 +146,13 @@ Templates receive a fully precomputed context (see `RenderContext` in
 ## What is (deliberately) not here yet
 
 This is the core of a rewrite, not full parity. The Python conda-smithy
-still owns: variant algebra / `conda_build_config.yaml` zipping (we emit
-one config per platform), provider registration (`register-ci`,
-token rotation), `ci-skeleton`, GitHub-API-backed lints (maintainer
-existence), and the long tail of legacy providers (Travis, Circle,
-Drone, Woodpecker templates). The architecture leaves room for all of
-these: matrix entries are plain data, and providers are just templates.
+still owns: recipe-aware variant pruning (we fan out every multi-valued
+variant key; conda-smithy only fans out keys the recipe actually uses),
+provider registration (`register-ci`, token rotation), `ci-skeleton`,
+GitHub-API-backed lints (maintainer existence), and the long tail of
+legacy providers (Travis, Circle, Drone, Woodpecker templates). The
+architecture leaves room for all of these: matrix entries are plain
+data, and providers are just templates.
 
 ## Rule id ↔ conda-smithy mapping
 

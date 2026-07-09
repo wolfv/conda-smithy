@@ -115,6 +115,14 @@ pub fn builtin_rules() -> Vec<Rule> {
         "tests",
         "wheels",
         "trailing_newline",
+        "selectors",
+        "jinja_spacing",
+        "pin_subpackage",
+        "bundled_licenses",
+        "misc_requirements",
+        "noarch_selectors",
+        "variant_config",
+        "forge_yml",
     ]
 }
 
@@ -226,6 +234,9 @@ impl Linter {
         // Untrusted scripts shouldn't be able to hang the linter.
         engine.set_max_operations(1_000_000);
         engine.set_max_call_levels(64);
+        // ...but the default parse-time complexity limits are tight enough
+        // to reject legitimate rules (nested for + if + method chains).
+        engine.set_max_expr_depths(256, 256);
 
         {
             let sink = sink.clone();
@@ -296,6 +307,14 @@ impl Linter {
                 .join(sep)
         });
 
+        // Parse any YAML string into a scriptable value; `()` on failure.
+        // Lets rules inspect auxiliary files like conda_build_config.yaml.
+        engine.register_fn("parse_yaml", |text: &str| -> Dynamic {
+            serde_yaml::from_str::<serde_yaml::Value>(text)
+                .map(|v| yaml_to_dynamic(&v))
+                .unwrap_or(Dynamic::UNIT)
+        });
+
         // Regex helpers, cached per pattern.
         let cache: Rc<RefCell<HashMap<String, regex::Regex>>> = Rc::default();
         fn compiled(
@@ -358,6 +377,10 @@ impl Linter {
             feedstock.recipe.parse_error.clone().unwrap_or_default(),
         );
         scope.push_constant("config", yaml_to_dynamic(&feedstock.config.raw));
+        scope.push_constant(
+            "config_schema_error",
+            feedstock.config.schema_error.clone().unwrap_or_default(),
+        );
 
         let recipe_files: Array = std::fs::read_dir(feedstock.recipe_dir())
             .map(|entries| {
@@ -368,6 +391,21 @@ impl Linter {
             })
             .unwrap_or_default();
         scope.push_constant("recipe_files", recipe_files);
+
+        // The variant file (conda_build_config.yaml / variants.yaml), if
+        // any: its file name and raw text, for rules like the macOS
+        // deployment-target checks.
+        let (variant_name, variant_text) = crate::variants::VARIANT_FILE_NAMES
+            .iter()
+            .find_map(|name| {
+                let path = feedstock.recipe_dir().join(name);
+                fs_err::read_to_string(&path)
+                    .ok()
+                    .map(|text| (name.to_string(), text))
+            })
+            .unwrap_or_default();
+        scope.push_constant("variant_config_filename", variant_name);
+        scope.push_constant("variant_config_text", variant_text);
         scope
     }
 

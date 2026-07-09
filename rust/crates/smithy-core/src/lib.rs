@@ -17,6 +17,7 @@ pub mod feedstock;
 pub mod lint;
 pub mod recipe;
 pub mod render;
+pub mod variants;
 
 pub use config::ForgeConfig;
 pub use feedstock::Feedstock;

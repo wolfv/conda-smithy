@@ -1,3 +1,7 @@
 # This file was generated automatically by smithy. Do not edit.
-target_platform: osx-arm64
+target_platform: osx-64
 build_platform: osx-64
+c_stdlib_version:
+- '10.13'
+python:
+- '3.13'

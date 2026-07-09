@@ -136,6 +136,11 @@ pub struct ForgeConfig {
     /// Everything, including keys not modelled above.
     #[serde(skip)]
     pub raw: serde_yaml::Value,
+    /// Set when the typed fields above could not be deserialized (the
+    /// config then falls back to defaults, but `raw` is still complete).
+    /// Surfaced by the `forge_yml` lint rule.
+    #[serde(skip)]
+    pub schema_error: Option<String>,
 }
 
 fn deserialize_provider_map<'de, D>(deserializer: D) -> Result<BTreeMap<String, Provider>, D::Error>
@@ -160,8 +165,15 @@ impl ForgeConfig {
         } else {
             serde_yaml::from_str(text).context("conda-forge.yml is not valid YAML")?
         };
-        let mut config: ForgeConfig =
-            serde_yaml::from_value(raw.clone()).context("unsupported value in conda-forge.yml")?;
+        // A mistyped key must not make the whole feedstock unloadable —
+        // fall back to defaults and let the `forge_yml` lint explain.
+        let mut config: ForgeConfig = match serde_yaml::from_value(raw.clone()) {
+            Ok(config) => config,
+            Err(err) => ForgeConfig {
+                schema_error: Some(err.to_string()),
+                ..Default::default()
+            },
+        };
         config.raw = raw;
         Ok(config)
     }

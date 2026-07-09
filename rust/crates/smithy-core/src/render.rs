@@ -24,6 +24,7 @@ use serde::Serialize;
 use crate::config::Provider;
 use crate::feedstock::Feedstock;
 use crate::recipe::lookup;
+use crate::variants::{cell_name_suffix, VariantCell, VariantConfig};
 
 /// Built-in templates and the file each one renders to.
 const BUILTIN_TEMPLATES: &[(&str, &str)] = &[
@@ -61,6 +62,9 @@ pub struct BuildConfig {
     /// Docker image for Linux builds.
     pub docker_image: Option<String>,
     pub cross_compile: bool,
+    /// Variant values from `conda_build_config.yaml` / `variants.yaml`
+    /// (e.g. `python` → `3.11`), written into `.ci_support/<name>.yaml`.
+    pub variant: VariantCell,
 }
 
 /// Platforms conda-forge builds by default.
@@ -141,17 +145,36 @@ pub fn compute_matrix(feedstock: &Feedstock) -> Vec<BuildConfig> {
             Provider::Default => Provider::Azure,
             p => p,
         };
-        matrix.push(BuildConfig {
-            name: target.clone(),
-            target_platform: dash(&target),
-            build_platform: dash(&build_platform),
-            os: os_of(&build_platform).to_string(),
-            provider: provider.as_str().to_string(),
-            upload: true,
-            gha_runs_on: gha_runs_on(&build_platform),
-            docker_image: docker_image(&target),
-            cross_compile: build_platform != target,
-        });
+
+        // Fan out over the variant file, one job per matrix cell. A recipe
+        // without a variant file gets exactly one (empty) cell.
+        let variant_config =
+            VariantConfig::from_recipe_dir(&feedstock.recipe_dir(), &target).unwrap_or_default();
+        let fanout_keys = variant_config.fanout_keys();
+        let cells = variant_config
+            .expand()
+            .unwrap_or_else(|_| vec![VariantCell::new()]);
+
+        for cell in cells {
+            let suffix = cell_name_suffix(&cell, &fanout_keys);
+            let name = if suffix.is_empty() {
+                target.clone()
+            } else {
+                format!("{target}_{suffix}")
+            };
+            matrix.push(BuildConfig {
+                name,
+                target_platform: dash(&target),
+                build_platform: dash(&build_platform),
+                os: os_of(&build_platform).to_string(),
+                provider: provider.as_str().to_string(),
+                upload: true,
+                gha_runs_on: gha_runs_on(&build_platform),
+                docker_image: docker_image(&target),
+                cross_compile: build_platform != target,
+                variant: cell,
+            });
+        }
     }
     matrix
 }
@@ -369,6 +392,12 @@ pub fn render_feedstock(feedstock: &Feedstock) -> Result<Vec<RenderedFile>> {
             doc.insert(
                 "docker_image".into(),
                 serde_yaml::Value::Sequence(vec![serde_yaml::Value::String(image.clone())]),
+            );
+        }
+        for (key, value) in &config.variant {
+            doc.insert(
+                serde_yaml::Value::String(key.clone()),
+                serde_yaml::Value::Sequence(vec![serde_yaml::Value::String(value.clone())]),
             );
         }
         rendered.push(RenderedFile {

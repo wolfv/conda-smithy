@@ -19,12 +19,22 @@ jobs:
       max-parallel: 50
       matrix:
         include:
-          - name: linux_64
+          - name: linux_64_python3.12
             target_platform: linux-64
             runs_on: ubuntu-latest
             upload: "true"
             docker_image: quay.io/condaforge/linux-anvil-x86_64
-          - name: linux_aarch64
+          - name: linux_64_python3.13
+            target_platform: linux-64
+            runs_on: ubuntu-latest
+            upload: "true"
+            docker_image: quay.io/condaforge/linux-anvil-x86_64
+          - name: linux_aarch64_python3.12
+            target_platform: linux-aarch64
+            runs_on: ubuntu-latest
+            upload: "true"
+            docker_image: quay.io/condaforge/linux-anvil-aarch64
+          - name: linux_aarch64_python3.13
             target_platform: linux-aarch64
             runs_on: ubuntu-latest
             upload: "true"
