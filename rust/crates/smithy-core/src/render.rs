@@ -24,7 +24,7 @@ use serde::Serialize;
 use crate::config::Provider;
 use crate::feedstock::Feedstock;
 use crate::recipe::lookup;
-use crate::variants::{cell_name_suffix, VariantCell, VariantConfig};
+use crate::variants::{cell_name_suffix, UsedVars, VariantCell, VariantConfig};
 
 /// Built-in templates and the file each one renders to.
 const BUILTIN_TEMPLATES: &[(&str, &str)] = &[
@@ -133,6 +133,8 @@ pub fn compute_matrix(feedstock: &Feedstock) -> Vec<BuildConfig> {
         };
     }
 
+    let used_vars = UsedVars::from_recipe(&feedstock.recipe);
+
     let mut matrix = Vec::new();
     for target in targets {
         let build_platform = config
@@ -147,9 +149,11 @@ pub fn compute_matrix(feedstock: &Feedstock) -> Vec<BuildConfig> {
         };
 
         // Fan out over the variant file, one job per matrix cell. A recipe
-        // without a variant file gets exactly one (empty) cell.
-        let variant_config =
+        // without a variant file gets exactly one (empty) cell. Keys the
+        // recipe never references are pruned first, like conda-smithy.
+        let mut variant_config =
             VariantConfig::from_recipe_dir(&feedstock.recipe_dir(), &target).unwrap_or_default();
+        variant_config.prune(&used_vars);
         let fanout_keys = variant_config.fanout_keys();
         let cells = variant_config
             .expand()

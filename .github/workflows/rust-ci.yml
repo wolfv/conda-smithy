@@ -1,0 +1,50 @@
+name: rust-ci
+
+on:
+  push:
+    branches: [master]
+    paths: ["rust/**", ".github/workflows/rust-ci.yml"]
+  pull_request:
+    paths: ["rust/**", ".github/workflows/rust-ci.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+  action-smoke-test:
+    name: smithy action on the demo feedstock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint the demo feedstock with the action
+        uses: ./rust/action
+        with:
+          command: lint
+          feedstock-dir: rust/examples/demo-feedstock

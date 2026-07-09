@@ -1,0 +1,64 @@
+site_name: smithy
+site_description: >-
+  The Rust rewrite of conda-smithy — lint conda recipes and render
+  feedstock CI, scriptable with Rhai lint rules and minijinja templates.
+site_url: https://wolfv.github.io/conda-smithy/
+repo_url: https://github.com/wolfv/conda-smithy
+repo_name: wolfv/conda-smithy
+edit_uri: edit/master/rust/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  icon:
+    logo: material/anvil
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Linting:
+      - Writing lint rules: lint-rules.md
+      - Built-in rules: builtin-rules.md
+  - Rendering CI:
+      - Templates: templates.md
+      - Build variants: variants.md
+  - Reference:
+      - CLI: cli.md
+      - GitHub Action: github-action.md
+      - Architecture: architecture.md

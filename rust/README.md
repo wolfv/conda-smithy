@@ -26,9 +26,17 @@ rust/
 
 ```console
 $ cargo build --release
-$ ./target/release/smithy lint --feedstock-dir path/to/feedstock
+$ ./target/release/smithy init mypkg --feedstock-dir my-feedstock
+$ ./target/release/smithy lint --feedstock-dir path/to/feedstock [--format json]
 $ ./target/release/smithy rerender --feedstock-dir path/to/feedstock [--check]
 ```
+
+Full documentation lives in `docs/` (a MkDocs site — `mkdocs serve -f
+mkdocs.yml`; deployed by `.github/workflows/rust-docs.yml`). A reusable
+GitHub Action wrapping the binary is available at `rust/action`
+(`uses: <owner>/conda-smithy/rust/action@<ref>`), and
+`.github/workflows/rust-ci.yml` keeps the workspace fmt/clippy/test
+clean.
 
 `smithy lint` runs the built-in rules plus every `*.rhai` file in
 `.smithy/lints/`, prints `error`s (lints) and `hint`s, and exits non-zero

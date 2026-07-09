@@ -20,13 +20,28 @@
 //! platform before parsing — the boolean expression is handed to a tiny
 //! Rhai engine, the same language used for lint rules.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::recipe::Recipe;
+
 /// Variant file names, in the order they are looked up.
 pub const VARIANT_FILE_NAMES: &[&str] = &["conda_build_config.yaml", "variants.yaml"];
+
+/// Variant keys that are always kept even when the recipe never mentions
+/// them — they steer the build environment rather than a dependency.
+const ALWAYS_USED: &[&str] = &[
+    "target_platform",
+    "channel_sources",
+    "channel_targets",
+    "docker_image",
+    "pin_run_as_build",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "MACOSX_SDK_VERSION",
+    "cdt_name",
+];
 
 /// The parsed variant configuration for one target platform.
 #[derive(Debug, Clone, Default)]
@@ -39,6 +54,102 @@ pub struct VariantConfig {
 
 /// One matrix cell: variable → chosen value.
 pub type VariantCell = BTreeMap<String, String>;
+
+/// What a recipe references, used to decide which variant keys matter.
+/// conda-smithy only fans the matrix out over variables the recipe
+/// actually uses; everything else is noise from shared pinning files.
+#[derive(Debug, Default, Clone)]
+pub struct UsedVars {
+    /// Package names appearing in any requirements section.
+    pub requirements: BTreeSet<String>,
+    /// The full recipe text (raw + rendered), for `{{ var }}` lookups and
+    /// compiler/stdlib detection.
+    haystack: String,
+}
+
+impl UsedVars {
+    pub fn from_recipe(recipe: &Recipe) -> Self {
+        let mut requirements = BTreeSet::new();
+        if let Some(doc) = &recipe.parsed {
+            collect_requirement_names(doc, &mut requirements);
+        }
+        UsedVars {
+            requirements,
+            haystack: format!("{}\n{}", recipe.text, recipe.rendered),
+        }
+    }
+
+    /// Is a single variant key used by the recipe?
+    pub fn contains(&self, key: &str) -> bool {
+        if ALWAYS_USED.contains(&key) || key.starts_with("cdt_") {
+            return true;
+        }
+        // A dependency of the recipe, e.g. `python`, `numpy`, `openssl`.
+        if self.requirements.contains(key) {
+            return true;
+        }
+        // Referenced as a template variable: `{{ python }}` / `${{ numpy }}`.
+        if self.haystack.contains(&format!("{{{{ {key} }}}}"))
+            || self.haystack.contains(&format!("{{{{{key}}}}}"))
+        {
+            return true;
+        }
+        // Compiler / stdlib keys: `rust_compiler_version` is used when the
+        // recipe calls `compiler('rust')`, `c_stdlib_version` when it calls
+        // `stdlib('c')`.
+        for (suffixes, stub, call) in [
+            (
+                ["_compiler", "_compiler_version"],
+                "_compiler_stub",
+                "compiler(",
+            ),
+            (["_stdlib", "_stdlib_version"], "_stdlib_stub", "stdlib("),
+        ] {
+            for suffix in suffixes {
+                if let Some(lang) = key.strip_suffix(suffix) {
+                    if self.haystack.contains(&format!("{lang}{stub}"))
+                        || self.haystack.contains(&format!("{call}'{lang}'"))
+                        || self.haystack.contains(&format!("{call}\"{lang}\""))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+/// Walk the document and collect the bare package names (`numpy >=1.20`
+/// → `numpy`) of everything inside `requirements:` / `run_exports:`
+/// subtrees, wherever they appear (top level or per output).
+fn collect_requirement_names(value: &serde_yaml::Value, into: &mut BTreeSet<String>) {
+    fn walk(value: &serde_yaml::Value, in_reqs: bool, into: &mut BTreeSet<String>) {
+        match value {
+            serde_yaml::Value::Mapping(mapping) => {
+                for (key, sub) in mapping {
+                    let flag = in_reqs
+                        || matches!(key.as_str(), Some("requirements") | Some("run_exports"));
+                    walk(sub, flag, into);
+                }
+            }
+            serde_yaml::Value::Sequence(seq) => {
+                for item in seq {
+                    match item {
+                        serde_yaml::Value::String(s) if in_reqs => {
+                            if let Some(name) = s.split_whitespace().next() {
+                                into.insert(name.to_string());
+                            }
+                        }
+                        other => walk(other, in_reqs, into),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(value, false, into);
+}
 
 /// Evaluate a conda selector expression (`linux and not aarch64`) for a
 /// target platform like `linux_64`. Unknown identifiers make the selector
@@ -170,6 +281,33 @@ impl VariantConfig {
             }
         }
         Ok(Self::default())
+    }
+
+    /// Drop every variant key the recipe doesn't use. A key survives when
+    /// [`UsedVars::contains`] says so, or when it shares a `zip_keys`
+    /// group with a surviving key (zipped variables must stay aligned).
+    pub fn prune(&mut self, used: &UsedVars) {
+        let directly_used: BTreeSet<String> = self
+            .variants
+            .iter()
+            .map(|(k, _)| k.clone())
+            .filter(|k| used.contains(k))
+            .collect();
+        let keep: BTreeSet<String> = self
+            .variants
+            .iter()
+            .map(|(k, _)| k.clone())
+            .filter(|key| {
+                directly_used.contains(key)
+                    || self.zip_keys.iter().any(|group| {
+                        group.iter().any(|k| k == key)
+                            && group.iter().any(|k| directly_used.contains(k))
+                    })
+            })
+            .collect();
+        self.variants.retain(|(k, _)| keep.contains(k));
+        self.zip_keys
+            .retain(|group| group.iter().filter(|k| keep.contains(*k)).count() > 1);
     }
 
     /// Expand into matrix cells: the cartesian product over all axes,
@@ -379,5 +517,99 @@ MACOSX_DEPLOYMENT_TARGET:  # [osx]
         assert_eq!(cells.len(), 1);
         assert!(cells[0].is_empty());
         assert!(config.fanout_keys().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod prune_tests {
+    use super::*;
+    use crate::recipe::RecipeVersion;
+    use std::path::PathBuf;
+
+    fn used(recipe_text: &str) -> UsedVars {
+        let recipe = Recipe::from_text(
+            PathBuf::from("meta.yaml"),
+            RecipeVersion::V0,
+            recipe_text.to_string(),
+        );
+        UsedVars::from_recipe(&recipe)
+    }
+
+    const RECIPE: &str = r#"package:
+  name: x
+  version: "1"
+requirements:
+  build:
+    - {{ compiler('c') }}
+    - {{ stdlib('c') }}
+  host:
+    - python
+  run:
+    - python
+"#;
+
+    #[test]
+    fn unused_keys_are_pruned() {
+        let mut config = VariantConfig::from_yaml(
+            "python: [\"3.12\", \"3.13\"]\nnumpy: [\"1.26\", \"2.0\"]\nrust_compiler_version: [\"1.80\"]\n",
+            "linux_64",
+        )
+        .unwrap();
+        config.prune(&used(RECIPE));
+        let keys: Vec<_> = config.variants.iter().map(|(k, _)| k.as_str()).collect();
+        // python is a requirement; numpy and the rust compiler are not used.
+        assert_eq!(keys, ["python"]);
+        assert_eq!(config.expand().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn compiler_stdlib_and_always_used_keys_survive() {
+        let mut config = VariantConfig::from_yaml(
+            "c_compiler_version: [\"13\"]\nc_stdlib_version: [\"2.17\"]\nchannel_sources: [\"conda-forge\"]\nMACOSX_DEPLOYMENT_TARGET: [\"11.0\"]\n",
+            "osx_64",
+        )
+        .unwrap();
+        config.prune(&used(RECIPE));
+        let keys: Vec<_> = config.variants.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "c_compiler_version",
+                "c_stdlib_version",
+                "channel_sources",
+                "MACOSX_DEPLOYMENT_TARGET"
+            ]
+        );
+    }
+
+    #[test]
+    fn jinja_reference_counts_as_usage() {
+        let recipe = "package:\n  name: x\nbuild:\n  string: py{{ python }}\n";
+        let mut config =
+            VariantConfig::from_yaml("python: [\"3.12\", \"3.13\"]\n", "linux_64").unwrap();
+        config.prune(&used(recipe));
+        assert_eq!(config.variants.len(), 1);
+    }
+
+    #[test]
+    fn zip_partner_of_used_key_survives() {
+        let mut config = VariantConfig::from_yaml(
+            "python: [\"3.12\", \"3.13\"]\npython_impl: [\"cpython\", \"cpython\"]\nzip_keys:\n  - [python, python_impl]\n",
+            "linux_64",
+        )
+        .unwrap();
+        config.prune(&used(RECIPE));
+        let keys: Vec<_> = config.variants.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["python", "python_impl"]);
+        assert_eq!(config.zip_keys.len(), 1);
+    }
+
+    #[test]
+    fn requirements_in_outputs_count() {
+        let recipe = "package:\n  name: x\noutputs:\n  - name: sub\n    requirements:\n      run:\n        - numpy >=1.20\n";
+        let mut config =
+            VariantConfig::from_yaml("numpy: [\"1.26\", \"2.0\"]\n", "linux_64").unwrap();
+        config.prune(&used(recipe));
+        assert_eq!(config.variants.len(), 1);
     }
 }
