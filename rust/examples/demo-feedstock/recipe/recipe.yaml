@@ -1,0 +1,37 @@
+schema_version: 1
+
+context:
+  version: "1.2.3"
+
+package:
+  name: demo-package
+  version: ${{ version }}
+
+source:
+  url: https://example.com/demo-package-${{ version }}.tar.gz
+  sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+build:
+  number: 0
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ stdlib('c') }}
+  host:
+    - python
+  run:
+    - python
+
+tests:
+  - script: demo-package --help
+
+about:
+  homepage: https://example.com
+  license: MIT
+  license_file: LICENSE
+  summary: A demo package showing off the Rust smithy
+
+extra:
+  recipe-maintainers:
+    - wolfv

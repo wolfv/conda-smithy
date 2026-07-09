@@ -1,0 +1,52 @@
+{#-
+  Feedstock README. Override via `.smithy/templates/README.md.j2`.
+-#}
+<!-- This file was generated automatically by smithy {{ smithy_version }}. Do not edit. -->
+# {{ feedstock_name }}-feedstock
+
+{% if about.home -%}
+Home: {{ about.home }}
+{% endif %}
+{%- if about.license %}
+License: {{ about.license }}
+{% endif %}
+{%- if about.summary %}
+Summary: {{ about.summary }}
+{% endif %}
+{%- if about.dev_url %}
+Development: {{ about.dev_url }}
+{% endif %}
+{%- if about.doc_url %}
+Documentation: {{ about.doc_url }}
+{% endif %}
+
+## Current build status
+
+| Variant | Build platform | CI |
+|---------|----------------|----|
+{% for data in configs -%}
+| {{ data.name }} | {{ data.build_platform }}{% if data.cross_compile %} (cross-compiled){% endif %} | {{ data.provider }} |
+{% endfor %}
+
+## Installing {{ package_name }}
+
+Installing `{{ package_name }}` from conda-forge can be achieved with
+[pixi](https://pixi.sh):
+
+```
+pixi add {{ package_name }}
+```
+
+or with conda:
+
+```
+conda install -c conda-forge {{ package_name }}
+```
+
+{% if maintainers -%}
+## Feedstock Maintainers
+
+{% for maintainer in maintainers -%}
+* [@{{ maintainer }}](https://github.com/{{ maintainer }}/)
+{% endfor %}
+{%- endif %}

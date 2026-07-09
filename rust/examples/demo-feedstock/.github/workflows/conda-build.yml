@@ -1,0 +1,56 @@
+# This file was generated automatically by smithy 0.1.0. Do not edit.
+name: Build conda package
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 50
+      matrix:
+        include:
+          - name: linux_64
+            target_platform: linux-64
+            runs_on: ubuntu-latest
+            upload: "true"
+            docker_image: quay.io/condaforge/linux-anvil-x86_64
+          - name: linux_aarch64
+            target_platform: linux-aarch64
+            runs_on: ubuntu-latest
+            upload: "true"
+            docker_image: quay.io/condaforge/linux-anvil-aarch64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0
+        with:
+          run-install: false
+      - name: Build recipe
+        shell: bash
+        run: >-
+          pixi exec rattler-build build
+          --recipe recipe
+          --target-platform ${{ matrix.target_platform }}
+          -m .ci_support/${{ matrix.name }}.yaml
+
+      - name: Upload package
+        if: ${{ matrix.upload == 'true' && github.event_name == 'push' }} # only from the main branch
+        shell: bash
+        env:
+          BINSTAR_TOKEN: ${{ secrets.BINSTAR_TOKEN }}
+        run: |
+          if [[ -n "${BINSTAR_TOKEN}" ]]; then
+            pixi exec anaconda -t "${BINSTAR_TOKEN}" upload --force output/**/*.{conda,tar.bz2}
+          fi

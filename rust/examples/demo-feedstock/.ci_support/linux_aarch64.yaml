@@ -1,0 +1,5 @@
+# This file was generated automatically by smithy. Do not edit.
+target_platform: linux-aarch64
+build_platform: linux-aarch64
+docker_image:
+- quay.io/condaforge/linux-anvil-aarch64

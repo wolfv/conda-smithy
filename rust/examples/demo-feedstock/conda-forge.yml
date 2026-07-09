@@ -1,0 +1,17 @@
+# Example feedstock configuration for the Rust smithy.
+provider:
+  linux_64: github_actions
+  linux_aarch64: github_actions
+  osx_64: azure
+  win_64: azure
+
+# Cross-compile osx-arm64 packages on osx-64 machines.
+build_platform:
+  osx_arm64: osx_64
+
+conda_build_tool: rattler-build
+upload_on_branch: main
+
+# Rules from .smithy/lints/ or built-ins can be disabled here:
+linter:
+  skip: []

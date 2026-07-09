@@ -1,0 +1,52 @@
+{#-
+  Azure Pipelines configuration.
+
+  Override by copying to `.smithy/templates/azure-pipelines.yml.j2`.
+  `azure_configs` holds the matrix entries assigned to Azure.
+-#}
+# This file was generated automatically by smithy {{ smithy_version }}. Do not edit.
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  autoCancel: true
+
+jobs:
+{%- for os in ["linux", "osx", "win"] %}
+{%- set entries = azure_configs | selectattr("os", "eq", os) | list %}
+{%- if entries %}
+  - job: {{ os }}
+    pool:
+{%- if os == "linux" %}
+      vmImage: ubuntu-latest
+{%- elif os == "osx" %}
+      vmImage: macOS-13
+{%- else %}
+      vmImage: windows-2022
+{%- endif %}
+    strategy:
+      matrix:
+{%- for data in entries %}
+        {{ data.name }}:
+          CONFIG: {{ data.name }}
+          UPLOAD_PACKAGES: "{{ data.upload }}"
+{%- if data.docker_image %}
+          DOCKER_IMAGE: {{ data.docker_image }}
+{%- endif %}
+{%- endfor %}
+    steps:
+{%- if os == "win" %}
+      - script: |
+          pixi exec rattler-build build --recipe {{ recipe_dir }} -m .ci_support/%CONFIG%.yaml
+        displayName: Build recipe
+{%- else %}
+      - script: |
+          curl -fsSL https://pixi.sh/install.sh | bash
+          export PATH="$HOME/.pixi/bin:$PATH"
+          pixi exec rattler-build build --recipe {{ recipe_dir }} -m .ci_support/$(CONFIG).yaml
+        displayName: Build recipe
+{%- endif %}
+{%- endif %}
+{%- endfor %}

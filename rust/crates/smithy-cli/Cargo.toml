@@ -1,0 +1,19 @@
+[package]
+name = "smithy-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[[bin]]
+name = "smithy"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+smithy-core = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

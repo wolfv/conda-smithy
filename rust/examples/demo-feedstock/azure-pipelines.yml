@@ -1,0 +1,39 @@
+# This file was generated automatically by smithy 0.1.0. Do not edit.
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  autoCancel: true
+
+jobs:
+  - job: osx
+    pool:
+      vmImage: macOS-13
+    strategy:
+      matrix:
+        osx_64:
+          CONFIG: osx_64
+          UPLOAD_PACKAGES: "true"
+        osx_arm64:
+          CONFIG: osx_arm64
+          UPLOAD_PACKAGES: "true"
+    steps:
+      - script: |
+          curl -fsSL https://pixi.sh/install.sh | bash
+          export PATH="$HOME/.pixi/bin:$PATH"
+          pixi exec rattler-build build --recipe recipe -m .ci_support/$(CONFIG).yaml
+        displayName: Build recipe
+  - job: win
+    pool:
+      vmImage: windows-2022
+    strategy:
+      matrix:
+        win_64:
+          CONFIG: win_64
+          UPLOAD_PACKAGES: "true"
+    steps:
+      - script: |
+          pixi exec rattler-build build --recipe recipe -m .ci_support/%CONFIG%.yaml
+        displayName: Build recipe
